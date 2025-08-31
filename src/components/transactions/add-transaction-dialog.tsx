@@ -132,6 +132,7 @@ export function AddTransactionDialog({
         // Invalidate and refetch transaction queries more aggressively
         await utils.transaction.getTransactions.invalidate();
         await utils.transaction.getSummary.invalidate();
+        await utils.transaction.getCategories.invalidate();
 
         // Also force refetch to ensure UI updates immediately
         await utils.transaction.invalidate();
@@ -157,6 +158,7 @@ export function AddTransactionDialog({
         // Invalidate and refetch transaction queries more aggressively
         await utils.transaction.getTransactions.invalidate();
         await utils.transaction.getSummary.invalidate();
+        await utils.transaction.getCategories.invalidate();
 
         // Also force refetch to ensure UI updates immediately
         await utils.transaction.invalidate();

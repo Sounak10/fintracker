@@ -2,7 +2,13 @@
 
 import { useState, useMemo } from "react";
 import { format, subDays } from "date-fns";
-import { Calendar as CalendarIcon, Filter, Search } from "lucide-react";
+import {
+  Calendar as CalendarIcon,
+  Filter,
+  Search,
+  ChevronLeft,
+  ChevronRight,
+} from "lucide-react";
 
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { AddTransactionDialog } from "@/components/transactions/add-transaction-dialog";
@@ -57,7 +63,7 @@ export default function TransactionsPage() {
   const [dateFrom, setDateFrom] = useState<Date | undefined>(defaultDates.from);
   const [dateTo, setDateTo] = useState<Date | undefined>(defaultDates.to);
   const [currentPage, setCurrentPage] = useState(1);
-  const itemsPerPage = 10;
+  const [itemsPerPage, setItemsPerPage] = useState(10);
 
   // Edit dialog state
   const [editDialogOpen, setEditDialogOpen] = useState(false);
@@ -82,6 +88,10 @@ export default function TransactionsPage() {
       to: dateTo ?? defaultDates.to,
       limit: itemsPerPage,
       offset: (currentPage - 1) * itemsPerPage,
+      search: searchTerm || undefined,
+      type:
+        typeFilter !== "all" ? (typeFilter as "income" | "expense") : undefined,
+      category: categoryFilter !== "all" ? categoryFilter : undefined,
     },
     {
       // Enable background refetching to catch new data
@@ -95,29 +105,27 @@ export default function TransactionsPage() {
   const transactions = transactionData?.transactions ?? [];
   const totalCount = transactionData?.totalCount ?? 0;
 
-  // Filter transactions client-side for search and type/category filters
-  const filteredTransactions = transactions.filter((transaction) => {
-    const matchesSearch =
-      !searchTerm ||
-      (transaction.description
-        ?.toLowerCase()
-        .includes(searchTerm.toLowerCase()) ??
-        false) ||
-      (transaction.category?.toLowerCase().includes(searchTerm.toLowerCase()) ??
-        false);
-
-    const matchesType = typeFilter === "all" || transaction.type === typeFilter;
-
-    const matchesCategory =
-      categoryFilter === "all" || transaction.category === categoryFilter;
-
-    return matchesSearch && matchesType && matchesCategory;
-  });
-
-  // Get unique categories from transactions
-  const categories = Array.from(
-    new Set(transactions.map((t) => t.category).filter(Boolean)),
+  // Get categories for filter dropdown
+  const { data: categories = [] } = api.transaction.getCategories.useQuery(
+    {
+      from: dateFrom ?? defaultDates.from,
+      to: dateTo ?? defaultDates.to,
+    },
+    {
+      refetchOnWindowFocus: false,
+    },
   );
+
+  // Calculate pagination
+  const totalPages = Math.ceil(totalCount / itemsPerPage);
+  const hasNextPage = currentPage < totalPages;
+  const hasPreviousPage = currentPage > 1;
+
+  // Reset pagination when filters change
+  const resetPaginationAndUpdate = (updateFn: () => void) => {
+    setCurrentPage(1);
+    updateFn();
+  };
 
   // Add delete mutation
   const utils = api.useUtils();
@@ -127,6 +135,7 @@ export default function TransactionsPage() {
         // Invalidate and refetch to ensure UI updates
         await utils.transaction.getTransactions.invalidate();
         await utils.transaction.getSummary.invalidate();
+        await utils.transaction.getCategories.invalidate();
         toast.success("Transaction deleted successfully!");
       },
       onError: (error) => {
@@ -192,13 +201,22 @@ export default function TransactionsPage() {
                 <Input
                   placeholder="Search transactions..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) =>
+                    resetPaginationAndUpdate(() =>
+                      setSearchTerm(e.target.value),
+                    )
+                  }
                   className="pl-8"
                 />
               </div>
 
               {/* Type Filter */}
-              <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <Select
+                value={typeFilter}
+                onValueChange={(value) =>
+                  resetPaginationAndUpdate(() => setTypeFilter(value))
+                }
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Type" />
                 </SelectTrigger>
@@ -210,7 +228,12 @@ export default function TransactionsPage() {
               </Select>
 
               {/* Category Filter */}
-              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+              <Select
+                value={categoryFilter}
+                onValueChange={(value) =>
+                  resetPaginationAndUpdate(() => setCategoryFilter(value))
+                }
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Category" />
                 </SelectTrigger>
@@ -244,7 +267,9 @@ export default function TransactionsPage() {
                   <Calendar
                     mode="single"
                     selected={dateFrom}
-                    onSelect={setDateFrom}
+                    onSelect={(date) =>
+                      resetPaginationAndUpdate(() => setDateFrom(date))
+                    }
                     initialFocus
                   />
                 </PopoverContent>
@@ -268,7 +293,9 @@ export default function TransactionsPage() {
                   <Calendar
                     mode="single"
                     selected={dateTo}
-                    onSelect={setDateTo}
+                    onSelect={(date) =>
+                      resetPaginationAndUpdate(() => setDateTo(date))
+                    }
                     initialFocus
                   />
                 </PopoverContent>
@@ -280,6 +307,7 @@ export default function TransactionsPage() {
               <Button
                 variant="outline"
                 onClick={() => {
+                  setCurrentPage(1);
                   setSearchTerm("");
                   setTypeFilter("all");
                   setCategoryFilter("all");
@@ -300,7 +328,9 @@ export default function TransactionsPage() {
               Transactions{" "}
               {isLoading
                 ? "(Loading...)"
-                : `(${filteredTransactions.length}${filteredTransactions.length !== totalCount ? ` of ${totalCount}` : ""})`}
+                : totalCount > 0
+                  ? `(${totalCount} total)`
+                  : "(0 total)"}
             </CardTitle>
             <CardDescription>
               All your financial transactions in one place
@@ -332,19 +362,19 @@ export default function TransactionsPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredTransactions.length === 0 ? (
+                  {transactions.length === 0 ? (
                     <TableRow>
                       <TableCell
                         colSpan={6}
                         className="text-muted-foreground py-8 text-center"
                       >
-                        {transactions.length === 0
+                        {totalCount === 0
                           ? "No transactions found. Start by adding your first transaction!"
                           : "No transactions match your filters. Try adjusting them."}
                       </TableCell>
                     </TableRow>
                   ) : (
-                    filteredTransactions.map((transaction) => (
+                    transactions.map((transaction) => (
                       <TableRow key={transaction.id}>
                         <TableCell>
                           {format(new Date(transaction.date), "MMM dd, yyyy")}
@@ -423,6 +453,114 @@ export default function TransactionsPage() {
                   )}
                 </TableBody>
               </Table>
+            )}
+
+            {/* Pagination Controls */}
+            {totalCount > 0 && (
+              <div className="mt-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                {/* Page Size Selector */}
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground text-sm">Show</span>
+                  <Select
+                    value={itemsPerPage.toString()}
+                    onValueChange={(value) => {
+                      setCurrentPage(1);
+                      setItemsPerPage(Number(value));
+                    }}
+                  >
+                    <SelectTrigger className="w-20">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="5">5</SelectItem>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="25">25</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <span className="text-muted-foreground text-sm">
+                    per page
+                  </span>
+                </div>
+
+                {/* Pagination Info */}
+                <div className="text-muted-foreground text-sm">
+                  Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
+                  {Math.min(currentPage * itemsPerPage, totalCount)} of{" "}
+                  {totalCount} transactions
+                </div>
+
+                {/* Pagination Buttons */}
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(1)}
+                    disabled={!hasPreviousPage}
+                    className="hidden sm:flex"
+                  >
+                    First
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(currentPage - 1)}
+                    disabled={!hasPreviousPage}
+                  >
+                    <ChevronLeft className="mr-1 size-4" />
+                    Previous
+                  </Button>
+
+                  {/* Page Numbers */}
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                      let pageNumber;
+                      if (totalPages <= 5) {
+                        pageNumber = i + 1;
+                      } else if (currentPage <= 3) {
+                        pageNumber = i + 1;
+                      } else if (currentPage >= totalPages - 2) {
+                        pageNumber = totalPages - 4 + i;
+                      } else {
+                        pageNumber = currentPage - 2 + i;
+                      }
+
+                      return (
+                        <Button
+                          key={pageNumber}
+                          variant={
+                            currentPage === pageNumber ? "default" : "outline"
+                          }
+                          size="sm"
+                          onClick={() => setCurrentPage(pageNumber)}
+                          className="hidden min-w-9 sm:flex"
+                        >
+                          {pageNumber}
+                        </Button>
+                      );
+                    })}
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(currentPage + 1)}
+                    disabled={!hasNextPage}
+                  >
+                    Next
+                    <ChevronRight className="ml-1 size-4" />
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(totalPages)}
+                    disabled={!hasNextPage}
+                    className="hidden sm:flex"
+                  >
+                    Last
+                  </Button>
+                </div>
+              </div>
             )}
           </CardContent>
         </Card>

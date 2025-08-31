@@ -10,6 +10,9 @@ export const transactionRouter = createTRPCRouter({
         to: z.date(),
         limit: z.number().min(1).max(100).default(10),
         offset: z.number().min(0).default(0),
+        search: z.string().optional(),
+        type: z.enum(["income", "expense"]).optional(),
+        category: z.string().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -19,6 +22,24 @@ export const transactionRouter = createTRPCRouter({
           gte: input.from,
           lte: input.to,
         },
+        ...(input.type && { type: input.type }),
+        ...(input.category && { category: input.category }),
+        ...(input.search && {
+          OR: [
+            {
+              description: {
+                contains: input.search,
+                mode: "insensitive" as const,
+              },
+            },
+            {
+              category: {
+                contains: input.search,
+                mode: "insensitive" as const,
+              },
+            },
+          ],
+        }),
       };
 
       const transaction = await ctx.db.transaction.findMany({
@@ -117,6 +138,37 @@ export const transactionRouter = createTRPCRouter({
         category: item.category,
         total: item._sum.amount,
       }));
+    }),
+
+  getCategories: protectedProcedure
+    .input(
+      z.object({
+        from: z.date(),
+        to: z.date(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const categories = await ctx.db.transaction.findMany({
+        where: {
+          userId: ctx.session.user.id,
+          date: {
+            gte: input.from,
+            lte: input.to,
+          },
+          category: {
+            not: null,
+          },
+        },
+        select: {
+          category: true,
+        },
+        distinct: ["category"],
+        orderBy: {
+          category: "asc",
+        },
+      });
+
+      return categories.map((item) => item.category).filter(Boolean);
     }),
 });
 
