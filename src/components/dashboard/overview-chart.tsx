@@ -7,6 +7,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import {
   type ChartConfig,
   ChartContainer,
@@ -15,16 +16,16 @@ import {
   ChartTooltip,
   ChartTooltipContent,
 } from "@/components/ui/chart";
-import { Bar, BarChart, ResponsiveContainer, XAxis, YAxis } from "recharts";
+import { Area, AreaChart, XAxis, YAxis } from "recharts";
 
 const chartConfig = {
   income: {
     label: "Income",
-    color: "#22c55e",
+    color: "hsl(142, 76%, 36%)",
   },
   expense: {
     label: "Expense",
-    color: "#ef4444",
+    color: "hsl(0, 84%, 60%)",
   },
 } satisfies ChartConfig;
 
@@ -38,14 +39,31 @@ interface OverviewChartProps {
 }
 
 export function OverviewChart({ data = [], isLoading }: OverviewChartProps) {
-  const sampleData = [
-    { month: "Jan", income: 4000, expense: 2400 },
-    { month: "Feb", income: 3000, expense: 1398 },
-    { month: "Mar", income: 2000, expense: 3800 },
-    { month: "Apr", income: 2780, expense: 3908 },
-    { month: "May", income: 1890, expense: 4800 },
-    { month: "Jun", income: 2390, expense: 3800 },
-  ];
+  // Generate dynamic sample data for the last 6 months based on current date
+  const generateSampleData = () => {
+    const now = new Date();
+    const sampleValues = [3600, 4000, 3900, 4200, 3800, 4500]; // Income values
+    const expenseValues = [2700, 3000, 2900, 3100, 2800, 3400]; // Expense values
+
+    return Array.from({ length: 6 }, (_, index) => {
+      const monthDate = new Date(
+        now.getFullYear(),
+        now.getMonth() - (5 - index),
+        1,
+      );
+      const monthLabel = monthDate.toLocaleDateString("en-US", {
+        month: "short",
+      });
+
+      return {
+        month: monthLabel,
+        income: sampleValues[index],
+        expense: expenseValues[index],
+      };
+    });
+  };
+
+  const sampleData = generateSampleData();
 
   const chartData = data.length > 0 ? data : sampleData;
 
@@ -54,10 +72,12 @@ export function OverviewChart({ data = [], isLoading }: OverviewChartProps) {
       <Card>
         <CardHeader>
           <CardTitle>Overview</CardTitle>
-          <CardDescription>Income vs Expenses over time</CardDescription>
+          <CardDescription>
+            Income vs Expenses for the last 6 months
+          </CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="bg-muted h-[300px] w-full animate-pulse rounded" />
+          <Skeleton className="h-[300px] w-full" />
         </CardContent>
       </Card>
     );
@@ -67,11 +87,42 @@ export function OverviewChart({ data = [], isLoading }: OverviewChartProps) {
     <Card>
       <CardHeader>
         <CardTitle>Overview</CardTitle>
-        <CardDescription>Income vs Expenses over time</CardDescription>
+        <CardDescription>
+          Income vs Expenses for the last 6 months
+        </CardDescription>
       </CardHeader>
       <CardContent>
-        <ChartContainer config={chartConfig} className="h-[300px]">
-          <BarChart data={chartData}>
+        <ChartContainer
+          config={chartConfig}
+          className="aspect-auto h-[300px] w-full"
+        >
+          <AreaChart data={chartData}>
+            <defs>
+              <linearGradient id="incomeGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="5%"
+                  stopColor="var(--color-income)"
+                  stopOpacity={0.3}
+                />
+                <stop
+                  offset="95%"
+                  stopColor="var(--color-income)"
+                  stopOpacity={0.1}
+                />
+              </linearGradient>
+              <linearGradient id="expenseGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop
+                  offset="5%"
+                  stopColor="var(--color-expense)"
+                  stopOpacity={0.3}
+                />
+                <stop
+                  offset="95%"
+                  stopColor="var(--color-expense)"
+                  stopOpacity={0.1}
+                />
+              </linearGradient>
+            </defs>
             <XAxis
               dataKey="month"
               stroke="#888888"
@@ -88,17 +139,21 @@ export function OverviewChart({ data = [], isLoading }: OverviewChartProps) {
             />
             <ChartTooltip content={<ChartTooltipContent />} />
             <ChartLegend content={<ChartLegendContent />} />
-            <Bar
+            <Area
+              type="monotone"
               dataKey="income"
-              fill="var(--color-income)"
-              radius={[4, 4, 0, 0]}
+              stroke="var(--color-income)"
+              strokeWidth={2}
+              fill="url(#incomeGradient)"
             />
-            <Bar
+            <Area
+              type="monotone"
               dataKey="expense"
-              fill="var(--color-expense)"
-              radius={[4, 4, 0, 0]}
+              stroke="var(--color-expense)"
+              strokeWidth={2}
+              fill="url(#expenseGradient)"
             />
-          </BarChart>
+          </AreaChart>
         </ChartContainer>
       </CardContent>
     </Card>

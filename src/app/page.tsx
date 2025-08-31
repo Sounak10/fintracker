@@ -2,11 +2,12 @@
 
 import { useSession } from "next-auth/react";
 import { DollarSign, TrendingUp, TrendingDown, CreditCard } from "lucide-react";
-import { subDays, startOfMonth, endOfMonth } from "date-fns";
+import { subDays, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import { useMemo } from "react";
 
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { StatsCard } from "@/components/dashboard/stats-card";
+import { StatsCardSkeleton } from "@/components/dashboard/stats-card-skeleton";
 import { RecentTransactions } from "@/components/dashboard/recent-transactions";
 import { OverviewChart } from "@/components/dashboard/overview-chart";
 import { AddTransactionDialog } from "@/components/transactions/add-transaction-dialog";
@@ -18,26 +19,47 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/trpc/react";
 
 export default function Home() {
   const { data: session } = useSession();
 
   // Date ranges for queries - use useMemo to prevent infinite re-renders
-  const { today, monthStart, monthEnd, thirtyDaysAgo } = useMemo((): {
-    today: Date;
-    monthStart: Date;
-    monthEnd: Date;
-    thirtyDaysAgo: Date;
-  } => {
-    const now = new Date();
-    return {
-      today: now,
-      monthStart: startOfMonth(now),
-      monthEnd: endOfMonth(now),
-      thirtyDaysAgo: subDays(now, 30),
-    };
-  }, []);
+  const { today, monthStart, monthEnd, thirtyDaysAgo, sixMonthsData } =
+    useMemo((): {
+      today: Date;
+      monthStart: Date;
+      monthEnd: Date;
+      thirtyDaysAgo: Date;
+      sixMonthsData: Array<{
+        start: Date;
+        end: Date;
+        label: string;
+      }>;
+    } => {
+      const now = new Date();
+      const currentMonth = startOfMonth(now);
+
+      // Generate data for last 6 months including current month
+      const months = [];
+      for (let i = 5; i >= 0; i--) {
+        const monthDate = subMonths(currentMonth, i);
+        months.push({
+          start: startOfMonth(monthDate),
+          end: endOfMonth(monthDate),
+          label: monthDate.toLocaleDateString("en-US", { month: "short" }),
+        });
+      }
+
+      return {
+        today: now,
+        monthStart: startOfMonth(now),
+        monthEnd: endOfMonth(now),
+        thirtyDaysAgo: subDays(now, 30),
+        sixMonthsData: months,
+      };
+    }, []);
 
   // Get recent transactions
   const { data: recentTransactionsData, isLoading: recentTransactionsLoading } =
@@ -53,29 +75,66 @@ export default function Home() {
       },
     );
 
-  // Get monthly income summary
-  const { data: monthlyIncome } = api.transaction.getSummary.useQuery(
-    {
-      from: monthStart,
-      to: monthEnd,
-      type: "income",
-    },
-    {
-      enabled: !!session?.user,
-    },
+  // Get data for the last 6 months
+  const sixMonthsIncome = sixMonthsData.map((month) =>
+    api.transaction.getSummary.useQuery(
+      {
+        from: month.start,
+        to: month.end,
+        type: "income",
+      },
+      {
+        enabled: !!session?.user,
+      },
+    ),
   );
 
-  // Get monthly expense summary
-  const { data: monthlyExpenses } = api.transaction.getSummary.useQuery(
-    {
-      from: monthStart,
-      to: monthEnd,
-      type: "expense",
-    },
-    {
-      enabled: !!session?.user,
-    },
+  const sixMonthsExpenses = sixMonthsData.map((month) =>
+    api.transaction.getSummary.useQuery(
+      {
+        from: month.start,
+        to: month.end,
+        type: "expense",
+      },
+      {
+        enabled: !!session?.user,
+      },
+    ),
   );
+
+  // Get current monthly data (for stats cards)
+  const { data: monthlyIncome, isLoading: monthlyIncomeLoading } =
+    api.transaction.getSummary.useQuery(
+      {
+        from: monthStart,
+        to: monthEnd,
+        type: "income",
+      },
+      {
+        enabled: !!session?.user,
+      },
+    );
+
+  const { data: monthlyExpenses, isLoading: monthlyExpensesLoading } =
+    api.transaction.getSummary.useQuery(
+      {
+        from: monthStart,
+        to: monthEnd,
+        type: "expense",
+      },
+      {
+        enabled: !!session?.user,
+      },
+    );
+
+  // Check if any stats data is loading
+  const isStatsLoading =
+    monthlyIncomeLoading || monthlyExpensesLoading || recentTransactionsLoading;
+
+  // Check if chart data is loading
+  const isChartLoading =
+    sixMonthsIncome.some((query) => query.isLoading) ||
+    sixMonthsExpenses.some((query) => query.isLoading);
 
   // Calculate stats from real data
   const totalMonthlyIncome =
@@ -87,13 +146,21 @@ export default function Home() {
   const transactionCount = recentTransactionsData?.totalCount ?? 0;
 
   // Prepare chart data for overview chart
-  const overviewChartData = [
-    {
-      month: monthStart.toLocaleDateString("en-US", { month: "short" }),
-      income: totalMonthlyIncome,
-      expense: totalMonthlyExpenses,
-    },
-  ];
+  const overviewChartData = sixMonthsData.map((month, index) => {
+    const incomeData = sixMonthsIncome[index]?.data;
+    const expenseData = sixMonthsExpenses[index]?.data;
+
+    const totalIncome =
+      incomeData?.reduce((sum, item) => sum + Number(item.total ?? 0), 0) ?? 0;
+    const totalExpense =
+      expenseData?.reduce((sum, item) => sum + Number(item.total ?? 0), 0) ?? 0;
+
+    return {
+      month: month.label,
+      income: totalIncome,
+      expense: totalExpense,
+    };
+  });
 
   return (
     <DashboardLayout>
@@ -103,8 +170,14 @@ export default function Home() {
           <div>
             <h1 className="text-3xl font-bold tracking-tight">Dashboard</h1>
             <p className="text-muted-foreground">
-              Welcome back, {session?.user?.name}! Here&apos;s your financial
-              overview.
+              {session?.user?.name ? (
+                <>
+                  Welcome back, {session.user.name}! Here&apos;s your financial
+                  overview.
+                </>
+              ) : (
+                <Skeleton className="h-5 w-80" />
+              )}
             </p>
           </div>
           <AddTransactionDialog />
@@ -112,35 +185,46 @@ export default function Home() {
 
         {/* Stats Cards */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-          <StatsCard
-            title="Total Balance"
-            value={`$${totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            description="Income minus expenses this month"
-            icon={DollarSign}
-            trend={
-              totalBalance > 0
-                ? { value: Math.abs(totalBalance / 100), isPositive: true }
-                : undefined
-            }
-          />
-          <StatsCard
-            title="Monthly Income"
-            value={`$${totalMonthlyIncome.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            description="Income this month"
-            icon={TrendingUp}
-          />
-          <StatsCard
-            title="Monthly Expenses"
-            value={`$${totalMonthlyExpenses.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
-            description="Expenses this month"
-            icon={TrendingDown}
-          />
-          <StatsCard
-            title="Transactions"
-            value={transactionCount.toString()}
-            description="Total transactions"
-            icon={CreditCard}
-          />
+          {isStatsLoading ? (
+            <>
+              <StatsCardSkeleton />
+              <StatsCardSkeleton />
+              <StatsCardSkeleton />
+              <StatsCardSkeleton />
+            </>
+          ) : (
+            <>
+              <StatsCard
+                title="Total Balance"
+                value={`$${totalBalance.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                description="Income minus expenses this month"
+                icon={DollarSign}
+                trend={
+                  totalBalance > 0
+                    ? { value: Math.abs(totalBalance / 100), isPositive: true }
+                    : undefined
+                }
+              />
+              <StatsCard
+                title="Monthly Income"
+                value={`$${totalMonthlyIncome.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                description="Income this month"
+                icon={TrendingUp}
+              />
+              <StatsCard
+                title="Monthly Expenses"
+                value={`$${totalMonthlyExpenses.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                description="Expenses this month"
+                icon={TrendingDown}
+              />
+              <StatsCard
+                title="Transactions"
+                value={transactionCount.toString()}
+                description="Total transactions"
+                icon={CreditCard}
+              />
+            </>
+          )}
         </div>
 
         {/* Charts and Recent Transactions */}
@@ -148,7 +232,7 @@ export default function Home() {
           <div className="col-span-4">
             <OverviewChart
               data={overviewChartData}
-              isLoading={!monthlyIncome || !monthlyExpenses}
+              isLoading={isChartLoading}
             />
           </div>
           <div className="col-span-3">
@@ -174,18 +258,29 @@ export default function Home() {
             </CardDescription>
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
-            <AddTransactionDialog>
-              <Button variant="outline">Add Income</Button>
-            </AddTransactionDialog>
-            <AddTransactionDialog>
-              <Button variant="outline">Add Expense</Button>
-            </AddTransactionDialog>
-            <Button variant="outline" asChild>
-              <a href="/receipt-upload">Upload Receipt</a>
-            </Button>
-            <Button variant="outline" asChild>
-              <a href="/reports">View Reports</a>
-            </Button>
+            {isStatsLoading ? (
+              <>
+                <Skeleton className="h-10 w-24" />
+                <Skeleton className="h-10 w-28" />
+                <Skeleton className="h-10 w-32" />
+                <Skeleton className="h-10 w-26" />
+              </>
+            ) : (
+              <>
+                <AddTransactionDialog>
+                  <Button variant="outline">Add Income</Button>
+                </AddTransactionDialog>
+                <AddTransactionDialog>
+                  <Button variant="outline">Add Expense</Button>
+                </AddTransactionDialog>
+                <Button variant="outline" asChild>
+                  <a href="/receipt-upload">Upload Receipt</a>
+                </Button>
+                <Button variant="outline" asChild>
+                  <a href="/reports">View Reports</a>
+                </Button>
+              </>
+            )}
           </CardContent>
         </Card>
       </div>
