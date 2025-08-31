@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
 import { format } from "date-fns";
 import { Calendar as CalendarIcon, Plus } from "lucide-react";
 import { useForm } from "react-hook-form";
@@ -20,7 +20,6 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
@@ -71,30 +70,61 @@ const categories = {
   ],
 };
 
-interface AddTransactionDialogProps {
+interface TransactionDialogProps {
   children?: React.ReactNode;
   onSubmit?: (data: TransactionFormValues) => void;
+  mode?: "add" | "edit";
+  initialData?: {
+    id: number;
+    type: "income" | "expense";
+    category?: string | null;
+    amount: number;
+    description?: string | null;
+    date: Date;
+  };
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function AddTransactionDialog({
   children,
   onSubmit,
-}: AddTransactionDialogProps) {
-  const [open, setOpen] = useState(false);
+  mode = "add",
+  initialData,
+  open: controlledOpen,
+  onOpenChange: controlledOnOpenChange,
+}: TransactionDialogProps) {
+  const [internalOpen, setInternalOpen] = useState(false);
   const utils = api.useUtils();
+
+  const open = controlledOpen ?? internalOpen;
+  const setOpen = controlledOnOpenChange ?? setInternalOpen;
 
   const form = useForm<TransactionFormValues>({
     resolver: zodResolver(transactionSchema),
     defaultValues: {
-      type: "expense",
-      category: "",
-      amount: 0,
-      description: "",
-      date: new Date(),
+      type: initialData?.type ?? "expense",
+      category: initialData?.category ?? "",
+      amount: initialData?.amount ?? 0,
+      description: initialData?.description ?? "",
+      date: initialData?.date ?? new Date(),
     },
   });
 
   const selectedType = form.watch("type");
+
+  // Reset form when initialData changes (for edit mode)
+  React.useEffect(() => {
+    if (initialData && mode === "edit") {
+      form.reset({
+        type: initialData.type,
+        category: initialData.category ?? "",
+        amount: initialData.amount,
+        description: initialData.description ?? "",
+        date: initialData.date,
+      });
+    }
+  }, [initialData, mode, form]);
 
   const createTransactionMutation =
     api.transaction.createTransaction.useMutation({
@@ -121,32 +151,75 @@ export function AddTransactionDialog({
       },
     });
 
-  const handleSubmit = (data: TransactionFormValues) => {
-    createTransactionMutation.mutate({
-      type: data.type,
-      category: data.category || undefined,
-      amount: data.amount,
-      description: data.description ?? undefined,
-      date: data.date,
+  const updateTransactionMutation =
+    api.transaction.updateTransaction.useMutation({
+      onSuccess: async () => {
+        // Invalidate and refetch transaction queries more aggressively
+        await utils.transaction.getTransactions.invalidate();
+        await utils.transaction.getSummary.invalidate();
+
+        // Also force refetch to ensure UI updates immediately
+        await utils.transaction.invalidate();
+
+        void utils.invalidate();
+
+        toast.success("Transaction updated successfully!", {
+          description: `${form.getValues().type} of $${form.getValues().amount} has been updated.`,
+        });
+        setOpen(false);
+        form.reset();
+      },
+      onError: (error) => {
+        toast.error("Failed to update transaction", {
+          description: error.message,
+        });
+      },
     });
+
+  const handleSubmit = (data: TransactionFormValues) => {
+    if (mode === "edit" && initialData?.id) {
+      updateTransactionMutation.mutate({
+        id: initialData.id,
+        type: data.type,
+        category: data.category || undefined,
+        amount: data.amount,
+        description: data.description ?? undefined,
+        date: data.date,
+      });
+    } else {
+      createTransactionMutation.mutate({
+        type: data.type,
+        category: data.category || undefined,
+        amount: data.amount,
+        description: data.description ?? undefined,
+        date: data.date,
+      });
+    }
     onSubmit?.(data);
   };
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>
-        {children ?? (
-          <Button>
-            <Plus className="mr-2 size-4" />
-            Add Transaction
-          </Button>
-        )}
-      </DialogTrigger>
+      {/* Only render DialogTrigger in add mode or when children are provided */}
+      {(mode === "add" || children) && (
+        <DialogTrigger asChild>
+          {children ?? (
+            <Button>
+              <Plus className="mr-2 size-4" />
+              Add Transaction
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Add New Transaction</DialogTitle>
+          <DialogTitle>
+            {mode === "edit" ? "Edit Transaction" : "Add New Transaction"}
+          </DialogTitle>
           <DialogDescription>
-            Add a new income or expense transaction to your finance tracker.
+            {mode === "edit"
+              ? "Update the details of your transaction."
+              : "Add a new income or expense transaction to your finance tracker."}
           </DialogDescription>
         </DialogHeader>
 
@@ -306,17 +379,27 @@ export function AddTransactionDialog({
                 type="button"
                 variant="outline"
                 onClick={() => setOpen(false)}
-                disabled={createTransactionMutation.isPending}
+                disabled={
+                  createTransactionMutation.isPending ||
+                  updateTransactionMutation.isPending
+                }
               >
                 Cancel
               </Button>
               <Button
                 type="submit"
-                disabled={createTransactionMutation.isPending}
+                disabled={
+                  createTransactionMutation.isPending ||
+                  updateTransactionMutation.isPending
+                }
               >
-                {createTransactionMutation.isPending
-                  ? "Adding..."
-                  : "Add Transaction"}
+                {mode === "edit"
+                  ? updateTransactionMutation.isPending
+                    ? "Updating..."
+                    : "Update Transaction"
+                  : createTransactionMutation.isPending
+                    ? "Adding..."
+                    : "Add Transaction"}
               </Button>
             </DialogFooter>
           </form>

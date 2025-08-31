@@ -59,6 +59,17 @@ export default function TransactionsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
+  // Edit dialog state
+  const [editDialogOpen, setEditDialogOpen] = useState(false);
+  const [editingTransaction, setEditingTransaction] = useState<{
+    id: number;
+    type: "income" | "expense";
+    category?: string | null;
+    amount: number;
+    description?: string | null;
+    date: Date;
+  } | null>(null);
+
   // Get transactions with current filters
   const {
     data: transactionData,
@@ -129,6 +140,18 @@ export default function TransactionsPage() {
     if (confirm("Are you sure you want to delete this transaction?")) {
       void deleteTransactionMutation.mutate({ id });
     }
+  };
+
+  const handleEditTransaction = (transaction: {
+    id: number;
+    type: "income" | "expense";
+    category?: string | null;
+    amount: number;
+    description?: string | null;
+    date: Date;
+  }) => {
+    setEditingTransaction(transaction);
+    setEditDialogOpen(true);
   };
 
   return (
@@ -362,7 +385,22 @@ export default function TransactionsPage() {
                         </TableCell>
                         <TableCell>
                           <div className="flex gap-2">
-                            <Button variant="ghost" size="sm">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                handleEditTransaction({
+                                  id: transaction.id,
+                                  type: transaction.type as
+                                    | "income"
+                                    | "expense",
+                                  category: transaction.category,
+                                  amount: Number(transaction.amount),
+                                  description: transaction.description,
+                                  date: new Date(transaction.date),
+                                })
+                              }
+                            >
                               Edit
                             </Button>
                             <Button
@@ -388,6 +426,25 @@ export default function TransactionsPage() {
             )}
           </CardContent>
         </Card>
+
+        {/* Edit Transaction Dialog */}
+        {editingTransaction && (
+          <AddTransactionDialog
+            mode="edit"
+            initialData={editingTransaction}
+            open={editDialogOpen}
+            onOpenChange={(open) => {
+              setEditDialogOpen(open);
+              if (!open) {
+                setEditingTransaction(null);
+              }
+            }}
+            onSubmit={() => {
+              // Force refetch when a transaction is edited
+              void refetch();
+            }}
+          />
+        )}
       </div>
     </DashboardLayout>
   );

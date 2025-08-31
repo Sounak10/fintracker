@@ -38,7 +38,7 @@ import {
   ChartContainer,
   ChartTooltip,
 } from "@/components/ui/chart";
-import { PieChart as RechartsPieChart, Cell } from "recharts";
+import { PieChart as RechartsPieChart, Pie, Cell } from "recharts";
 import { cn } from "@/lib/utils";
 
 const chartConfig = {
@@ -249,7 +249,7 @@ export default function AnalyticsPage() {
                           key={item.category}
                           className="flex items-center justify-between rounded-lg bg-green-50 p-3"
                         >
-                          <span className="font-medium">
+                          <span className="font-bold dark:text-black">
                             {item.category ?? "Other"}
                           </span>
                           <span className="font-bold text-green-600">
@@ -273,7 +273,7 @@ export default function AnalyticsPage() {
                           key={item.category}
                           className="flex items-center justify-between rounded-lg bg-red-50 p-3"
                         >
-                          <span className="font-medium">
+                          <span className="font-bold dark:text-black">
                             {item.category ?? "Other"}
                           </span>
                           <span className="font-bold text-red-600">
@@ -321,43 +321,55 @@ export default function AnalyticsPage() {
                   </div>
                 ) : (
                   <>
-                    <ChartContainer config={chartConfig} className="h-[300px]">
-                      <RechartsPieChart>
-                        <ChartTooltip
-                          content={({ active, payload }) => {
-                            if (active && payload?.[0]?.payload) {
-                              const data = payload[0].payload as {
-                                category: string;
-                                amount: number;
-                              };
-                              return (
-                                <div className="bg-background rounded-lg border p-2 shadow-sm">
-                                  <div className="grid gap-1">
-                                    <span className="text-sm font-medium">
-                                      {data.category}
-                                    </span>
-                                    <span className="text-muted-foreground text-sm">
-                                      ${data.amount.toLocaleString()}
-                                    </span>
-                                  </div>
-                                </div>
-                              );
-                            }
-                            return null;
-                          }}
-                        />
+                    <div className="flex h-[400px] items-center justify-center">
+                      <ChartContainer
+                        config={chartConfig}
+                        className="h-[400px] w-[400px]"
+                      >
                         <RechartsPieChart
+                          width={400}
+                          height={400}
                           data={categoryData}
-                          cx="50%"
-                          cy="50%"
-                          outerRadius={80}
                         >
-                          {categoryData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={entry.color} />
-                          ))}
+                          <ChartTooltip
+                            content={({ active, payload }) => {
+                              if (active && payload?.[0]?.payload) {
+                                const data = payload[0].payload as {
+                                  category: string;
+                                  amount: number;
+                                };
+                                return (
+                                  <div className="bg-background rounded-lg border p-2 shadow-sm">
+                                    <div className="grid gap-1">
+                                      <span className="text-sm font-medium">
+                                        {data.category}
+                                      </span>
+                                      <span className="text-muted-foreground text-sm">
+                                        ${data.amount.toLocaleString()}
+                                      </span>
+                                    </div>
+                                  </div>
+                                );
+                              }
+                              return null;
+                            }}
+                          />
+                          <Pie
+                            data={categoryData}
+                            cx="50%"
+                            cy="50%"
+                            innerRadius={60}
+                            outerRadius={120}
+                            paddingAngle={2}
+                            dataKey="amount"
+                          >
+                            {categoryData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={entry.color} />
+                            ))}
+                          </Pie>
                         </RechartsPieChart>
-                      </RechartsPieChart>
-                    </ChartContainer>
+                      </ChartContainer>
+                    </div>
                     <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
                       {categoryData.map((item) => (
                         <div
@@ -388,41 +400,49 @@ export default function AnalyticsPage() {
                   Key metrics for the selected period
                 </CardDescription>
               </CardHeader>
-              <CardContent>
+              <CardContent className="flex h-[400px] flex-col justify-center">
                 {incomeLoading || expenseLoading ? (
-                  <div className="flex h-[200px] items-center justify-center">
+                  <div className="flex h-full items-center justify-center">
                     <div className="border-primary size-8 animate-spin rounded-full border-2 border-t-transparent"></div>
                     <span className="text-muted-foreground ml-3">
                       Loading summary...
                     </span>
                   </div>
                 ) : (
-                  <div className="space-y-6">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <TrendingUp className="size-4 text-green-600" />
-                        <span className="text-sm">Total Income</span>
+                  <div className="flex h-full flex-col justify-center space-y-8">
+                    <div className="space-y-6">
+                      <div className="flex items-center justify-between rounded-lg bg-green-50 p-4 dark:bg-green-950/20">
+                        <div className="flex items-center gap-3">
+                          <TrendingUp className="size-5 text-green-600" />
+                          <span className="text-base font-medium">
+                            Total Income
+                          </span>
+                        </div>
+                        <span className="text-xl font-bold text-green-600">
+                          ${totalIncome.toLocaleString()}
+                        </span>
                       </div>
-                      <span className="text-lg font-bold text-green-600">
-                        ${totalIncome.toLocaleString()}
-                      </span>
+
+                      <div className="flex items-center justify-between rounded-lg bg-red-50 p-4 dark:bg-red-950/20">
+                        <div className="flex items-center gap-3">
+                          <TrendingDown className="size-5 text-red-600" />
+                          <span className="text-base font-medium">
+                            Total Expenses
+                          </span>
+                        </div>
+                        <span className="text-xl font-bold text-red-600">
+                          ${totalExpenses.toLocaleString()}
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <TrendingDown className="size-4 text-red-600" />
-                        <span className="text-sm">Total Expenses</span>
-                      </div>
-                      <span className="text-lg font-bold text-red-600">
-                        ${totalExpenses.toLocaleString()}
-                      </span>
-                    </div>
-
-                    <div className="border-t pt-4">
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm font-medium">Net Income</span>
+                    <div className="border-t pt-6">
+                      <div className="flex items-center justify-between rounded-lg bg-blue-50 p-4 dark:bg-blue-950/20">
+                        <span className="text-base font-semibold">
+                          Net Income
+                        </span>
                         <span
-                          className={`text-xl font-bold ${
+                          className={`text-2xl font-bold ${
                             totalIncome - totalExpenses >= 0
                               ? "text-green-600"
                               : "text-red-600"
@@ -434,18 +454,18 @@ export default function AnalyticsPage() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 border-t pt-4">
-                      <div className="text-center">
-                        <div className="text-2xl font-bold">
+                    <div className="grid grid-cols-2 gap-6 border-t pt-6">
+                      <div className="rounded-lg bg-gray-50 p-4 text-center dark:bg-gray-800/50">
+                        <div className="text-3xl font-bold text-blue-600">
                           {(incomeSummary?.length ?? 0) +
                             (expenseSummary?.length ?? 0)}
                         </div>
-                        <div className="text-muted-foreground text-xs">
+                        <div className="text-muted-foreground mt-1 text-sm font-medium">
                           Categories
                         </div>
                       </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold">
+                      <div className="rounded-lg bg-gray-50 p-4 text-center dark:bg-gray-800/50">
+                        <div className="text-3xl font-bold text-blue-600">
                           $
                           {totalExpenses > 0
                             ? Math.round(
@@ -453,7 +473,7 @@ export default function AnalyticsPage() {
                               )
                             : 0}
                         </div>
-                        <div className="text-muted-foreground text-xs">
+                        <div className="text-muted-foreground mt-1 text-sm font-medium">
                           Avg. per Category
                         </div>
                       </div>

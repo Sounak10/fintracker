@@ -86,6 +86,15 @@ export default function Home() {
   const totalBalance = totalMonthlyIncome - totalMonthlyExpenses;
   const transactionCount = recentTransactionsData?.totalCount ?? 0;
 
+  // Prepare chart data for overview chart
+  const overviewChartData = [
+    {
+      month: monthStart.toLocaleDateString("en-US", { month: "short" }),
+      income: totalMonthlyIncome,
+      expense: totalMonthlyExpenses,
+    },
+  ];
+
   return (
     <DashboardLayout>
       <div className="space-y-6">
@@ -137,7 +146,10 @@ export default function Home() {
         {/* Charts and Recent Transactions */}
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
           <div className="col-span-4">
-            <OverviewChart />
+            <OverviewChart
+              data={overviewChartData}
+              isLoading={!monthlyIncome || !monthlyExpenses}
+            />
           </div>
           <div className="col-span-3">
             <RecentTransactions

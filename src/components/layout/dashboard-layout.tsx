@@ -1,6 +1,6 @@
 "use client";
 
-import { useSession } from "next-auth/react";
+import { useSession, signIn } from "next-auth/react";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./app-sidebar";
 import { Button } from "@/components/ui/button";
@@ -44,10 +44,7 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Button
-              className="w-full"
-              onClick={() => (window.location.href = "/api/auth/signin")}
-            >
+            <Button className="w-full" onClick={() => signIn("google")}>
               Sign In with Google
             </Button>
           </CardContent>
