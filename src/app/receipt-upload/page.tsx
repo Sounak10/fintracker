@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from "react";
 import { Upload, FileText, Image, X, Check, AlertCircle } from "lucide-react";
+import { toast } from "sonner";
 
 import { DashboardLayout } from "@/components/layout/dashboard-layout";
 import { Button } from "@/components/ui/button";
@@ -15,6 +16,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { api } from "@/trpc/react";
 
 interface UploadedFile {
   id: string;
@@ -25,7 +27,14 @@ interface UploadedFile {
     amount: number;
     date: string;
     merchant: string;
-    category?: string;
+    category: string;
+    type: "income" | "expense";
+    description?: string;
+    confidence: number;
+  };
+  transaction?: {
+    id: number;
+    message: string;
   };
   error?: string;
 }
@@ -37,100 +46,171 @@ export default function ReceiptUploadPage() {
   const acceptedFileTypes = "image/*,.pdf";
   const maxFileSize = 10 * 1024 * 1024; // 10MB
 
-  const simulateFileProcessing = (fileId: string) => {
-    const updateProgress = (progress: number) => {
-      setUploadedFiles((prev) =>
-        prev.map((f) => (f.id === fileId ? { ...f, progress } : f)),
-      );
-    };
+  // TRPC utils for invalidating queries after receipt processing
+  const utils = api.useUtils();
 
-    // Simulate upload progress
-    const uploadInterval = setInterval(() => {
-      updateProgress(Math.random() * 30 + 10);
-    }, 100);
-
-    setTimeout(() => {
-      clearInterval(uploadInterval);
-      setUploadedFiles((prev) =>
-        prev.map((f) =>
-          f.id === fileId
-            ? {
-                ...f,
-                status: "processing",
-                progress: 100,
-              }
-            : f,
-        ),
-      );
-
-      // Simulate processing
-      setTimeout(() => {
-        const isSuccess = Math.random() > 0.2; // 80% success rate
-
-        if (isSuccess) {
-          setUploadedFiles((prev) =>
-            prev.map((f) =>
-              f.id === fileId
-                ? {
-                    ...f,
-                    status: "completed",
-                    extractedData: {
-                      amount: Math.random() * 100 + 10,
-                      date: new Date().toISOString().split("T")[0],
-                      merchant: "Sample Restaurant",
-                      category: "Food",
-                    },
-                  }
-                : f,
-            ),
-          );
-        } else {
-          setUploadedFiles((prev) =>
-            prev.map((f) =>
-              f.id === fileId
-                ? {
-                    ...f,
-                    status: "error",
-                    error: "Failed to extract data from receipt",
-                  }
-                : f,
-            ),
-          );
-        }
-      }, 2000);
-    }, 1000);
-  };
-
-  const handleFileUpload = useCallback((files: FileList | File[]) => {
-    const fileArray = Array.from(files);
-
-    fileArray.forEach((file) => {
-      // Validate file type
-      if (!file.type.startsWith("image/") && !file.type.includes("pdf")) {
-        alert(
-          `File ${file.name} is not a supported format. Please upload images or PDFs.`,
+  const processReceiptFile = useCallback(
+    async (fileId: string, file: File) => {
+      const updateProgress = (progress: number) => {
+        setUploadedFiles((prev) =>
+          prev.map((f) => (f.id === fileId ? { ...f, progress } : f)),
         );
-        return;
-      }
-
-      // Validate file size
-      if (file.size > maxFileSize) {
-        alert(`File ${file.name} is too large. Maximum size is 10MB.`);
-        return;
-      }
-
-      const fileId = Math.random().toString(36).substr(2, 9);
-      const uploadedFile: UploadedFile = {
-        id: fileId,
-        file,
-        status: "uploading",
-        progress: 0,
       };
 
-      setUploadedFiles((prev) => [...prev, uploadedFile]);
-      simulateFileProcessing(fileId);
-    });
-  }, []);
+      try {
+        // Update to processing status
+        setUploadedFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileId
+              ? {
+                  ...f,
+                  status: "processing",
+                  progress: 50,
+                }
+              : f,
+          ),
+        );
+
+        // Create form data and send to API
+        const formData = new FormData();
+        formData.append("file", file);
+
+        const response = await fetch("/api/process-receipt", {
+          method: "POST",
+          body: formData,
+        });
+
+        updateProgress(80);
+
+        if (!response.ok) {
+          // Handle case where response might be HTML (error page) instead of JSON
+          const contentType = response.headers.get("content-type");
+          console.log("Error response content-type:", contentType);
+          if (contentType?.includes("application/json")) {
+            const errorData = (await response.json()) as { error?: string };
+            throw new Error(errorData.error ?? "Failed to process receipt");
+          } else {
+            // If it's not JSON, it's likely an HTML error page
+            const errorText = await response.text();
+            console.error(
+              "Non-JSON error response:",
+              errorText.substring(0, 200),
+            );
+            throw new Error(
+              `Server error: ${response.status} ${response.statusText}`,
+            );
+          }
+        }
+
+        // Check if response is JSON before parsing
+        const contentType = response.headers.get("content-type");
+        if (!contentType?.includes("application/json")) {
+          const errorText = await response.text();
+          console.error(
+            "Expected JSON but got:",
+            contentType,
+            errorText.substring(0, 200),
+          );
+          throw new Error("Server returned non-JSON response");
+        }
+
+        const result = (await response.json()) as {
+          success: boolean;
+          error?: string;
+          data?: {
+            amount: number;
+            date: string;
+            merchant: string;
+            category: string;
+            type: "income" | "expense";
+            description?: string;
+            confidence: number;
+          };
+          transaction?: {
+            id: number;
+            message: string;
+          };
+        };
+
+        if (!result.success) {
+          throw new Error(result.error ?? "Processing failed");
+        }
+
+        updateProgress(100);
+
+        // Update with extracted data and transaction info
+        setUploadedFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileId
+              ? {
+                  ...f,
+                  status: "completed",
+                  extractedData: result.data!,
+                  transaction: result.transaction!,
+                }
+              : f,
+          ),
+        );
+
+        // Invalidate transaction queries since a new transaction was added
+        await utils.transaction.getTransactions.invalidate();
+        await utils.transaction.getSummary.invalidate();
+
+        toast.success("Receipt processed and transaction added successfully!");
+      } catch (error) {
+        console.error("Receipt processing error:", error);
+        setUploadedFiles((prev) =>
+          prev.map((f) =>
+            f.id === fileId
+              ? {
+                  ...f,
+                  status: "error",
+                  error:
+                    error instanceof Error
+                      ? error.message
+                      : "Failed to process receipt",
+                }
+              : f,
+          ),
+        );
+      }
+    },
+    [utils.transaction.getTransactions, utils.transaction.getSummary],
+  );
+
+  const handleFileUpload = useCallback(
+    (files: FileList | File[]) => {
+      const fileArray = Array.from(files);
+
+      fileArray.forEach((file) => {
+        // Validate file type
+        if (!file.type.startsWith("image/") && !file.type.includes("pdf")) {
+          alert(
+            `File ${file.name} is not a supported format. Please upload images or PDFs.`,
+          );
+          return;
+        }
+
+        // Validate file size
+        if (file.size > maxFileSize) {
+          alert(`File ${file.name} is too large. Maximum size is 10MB.`);
+          return;
+        }
+
+        const fileId = Math.random().toString(36).substr(2, 9);
+        const uploadedFile: UploadedFile = {
+          id: fileId,
+          file,
+          status: "uploading",
+          progress: 0,
+        };
+
+        setUploadedFiles((prev) => [...prev, uploadedFile]);
+        void processReceiptFile(fileId, file);
+      });
+    },
+    [maxFileSize, processReceiptFile],
+  );
 
   const handleDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>) => {
@@ -167,7 +247,10 @@ export default function ReceiptUploadPage() {
           : f,
       ),
     );
-    simulateFileProcessing(fileId);
+    const file = uploadedFiles.find((f) => f.id === fileId)?.file;
+    if (file) {
+      void processReceiptFile(fileId, file);
+    }
   };
 
   return (
@@ -233,10 +316,10 @@ export default function ReceiptUploadPage() {
           <AlertCircle className="size-4" />
           <AlertTitle>Receipt Processing Features</AlertTitle>
           <AlertDescription>
-            Our AI-powered system can extract key information from your receipts
-            including: amount, date, merchant name, and suggested categories.
-            You can review and edit the extracted data before adding it to your
-            transactions.
+            Our AI-powered system automatically extracts key information from
+            your receipts including: amount, date, merchant name, and
+            categories, then saves them directly to your transaction history.
+            Processing is instant and hands-free!
           </AlertDescription>
         </Alert>
 
@@ -259,6 +342,7 @@ export default function ReceiptUploadPage() {
                     {/* File Icon */}
                     <div className="flex-shrink-0">
                       {uploadedFile.file.type.startsWith("image/") ? (
+                        /* eslint-disable-next-line jsx-a11y/alt-text */
                         <Image className="size-8 text-blue-500" />
                       ) : (
                         <FileText className="size-8 text-red-500" />
@@ -334,21 +418,69 @@ export default function ReceiptUploadPage() {
                               </div>
                               <div>
                                 <span className="text-muted-foreground">
+                                  Type:
+                                </span>
+                                <span className="ml-2">
+                                  <Badge
+                                    variant={
+                                      uploadedFile.extractedData.type ===
+                                      "income"
+                                        ? "default"
+                                        : "secondary"
+                                    }
+                                    className={
+                                      uploadedFile.extractedData.type ===
+                                      "income"
+                                        ? "bg-green-100 text-green-800"
+                                        : "bg-red-100 text-red-800"
+                                    }
+                                  >
+                                    {uploadedFile.extractedData.type}
+                                  </Badge>
+                                </span>
+                              </div>
+                              <div>
+                                <span className="text-muted-foreground">
                                   Category:
                                 </span>
                                 <span className="ml-2">
-                                  <Badge variant="secondary">
+                                  <Badge variant="outline">
                                     {uploadedFile.extractedData.category}
                                   </Badge>
                                 </span>
                               </div>
+                              <div>
+                                <span className="text-muted-foreground">
+                                  Confidence:
+                                </span>
+                                <span className="ml-2 font-medium">
+                                  {Math.round(
+                                    uploadedFile.extractedData.confidence * 100,
+                                  )}
+                                  %
+                                </span>
+                              </div>
                             </div>
-                            <div className="mt-3 flex gap-2">
-                              <Button size="sm">Add as Transaction</Button>
-                              <Button size="sm" variant="outline">
-                                Edit Details
-                              </Button>
-                            </div>
+                            {uploadedFile.extractedData.description && (
+                              <div className="mt-2">
+                                <span className="text-muted-foreground text-sm">
+                                  Description:
+                                </span>
+                                <p className="mt-1 text-sm">
+                                  {uploadedFile.extractedData.description}
+                                </p>
+                              </div>
+                            )}
+                            {uploadedFile.transaction && (
+                              <div className="mt-2 rounded-md bg-green-50 p-2">
+                                <p className="text-sm font-medium text-green-800">
+                                  ✅ {uploadedFile.transaction.message}
+                                </p>
+                                <p className="text-xs text-green-600">
+                                  Transaction ID: {uploadedFile.transaction.id}
+                                </p>
+                              </div>
+                            )}
                           </div>
                         )}
 
