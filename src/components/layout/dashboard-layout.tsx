@@ -11,6 +11,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { ModeToggle } from "../theme/theme-toggle";
 
 interface DashboardLayoutProps {
   children: React.ReactNode;
@@ -60,8 +61,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       <AppSidebar />
       <main className="flex-1">
         <div className="bg-background/95 supports-[backdrop-filter]:bg-background/60 border-b backdrop-blur">
-          <div className="flex h-14 items-center px-4">
+          <div className="flex h-14 items-center justify-between px-4">
             <SidebarTrigger />
+            <ModeToggle />
           </div>
         </div>
         <div className="flex-1 space-y-4 p-4 pt-6">{children}</div>
